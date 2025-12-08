@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { api } from '../lib/api';
 import { useClasses } from '../contexts/ClassesContext';
 
@@ -7,14 +7,42 @@ export default function AddStudents() {
   const [name, setName] = useState('');
   const [rollNumber, setRollNumber] = useState('');
   const [selectedClass, setSelectedClass] = useState('');
+  const [photoUrl, setPhotoUrl] = useState('');
+  const [photoPreview, setPhotoPreview] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (activeClasses.length > 0 && !selectedClass) {
       setSelectedClass(activeClasses[0]);
     }
   }, [activeClasses, selectedClass]);
+
+  function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 2 * 1024 * 1024) {
+        setMessage('Photo size should be less than 2MB');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64 = reader.result as string;
+        setPhotoUrl(base64);
+        setPhotoPreview(base64);
+      };
+      reader.readAsDataURL(file);
+    }
+  }
+
+  function removePhoto() {
+    setPhotoUrl('');
+    setPhotoPreview('');
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -26,12 +54,18 @@ export default function AddStudents() {
         name,
         roll_number: rollNumber,
         class: selectedClass,
+        photo_url: photoUrl || undefined,
       });
 
       setMessage('Student added successfully!');
       setName('');
       setRollNumber('');
       setSelectedClass(activeClasses[0] || '');
+      setPhotoUrl('');
+      setPhotoPreview('');
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
     } catch (error: unknown) {
       console.error('Error adding student:', error);
       if (error instanceof Error) {
@@ -146,6 +180,63 @@ export default function AddStudents() {
                 <option key={cls} value={cls}>{cls}</option>
               ))}
             </select>
+          </div>
+
+          <div style={{ marginBottom: '24px' }}>
+            <label style={{
+              display: 'block',
+              fontSize: '14px',
+              fontWeight: '500',
+              color: '#374151',
+              marginBottom: '8px'
+            }}>
+              Upload Photo (Optional)
+            </label>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/*"
+              onChange={handlePhotoChange}
+              style={{
+                width: '100%',
+                padding: '12px',
+                border: '2px solid #e5e7eb',
+                borderRadius: '8px',
+                fontSize: '14px',
+                outline: 'none',
+                cursor: 'pointer'
+              }}
+            />
+            {photoPreview && (
+              <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '12px' }}>
+                <img
+                  src={photoPreview}
+                  alt="Preview"
+                  style={{
+                    width: '80px',
+                    height: '80px',
+                    objectFit: 'cover',
+                    borderRadius: '8px',
+                    border: '2px solid #e5e7eb'
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={removePhoto}
+                  style={{
+                    padding: '6px 12px',
+                    background: '#ef4444',
+                    color: '#ffffff',
+                    border: 'none',
+                    borderRadius: '6px',
+                    cursor: 'pointer',
+                    fontSize: '12px'
+                  }}
+                >
+                  Remove
+                </button>
+              </div>
+            )}
           </div>
 
           {message && (

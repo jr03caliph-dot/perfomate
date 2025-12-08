@@ -22,7 +22,6 @@ export default function MultipleEntry() {
   const [performanceReasons, setPerformanceReasons] = useState<PerformanceReason[]>([]);
   const [reasonSearch, setReasonSearch] = useState('');
   
-  const [successAnimation, setSuccessAnimation] = useState<Record<string, 'class' | 'star' | 'performance' | null>>({});
 
   useEffect(() => {
     if (activeClasses.length > 0 && !selectedClass) {
@@ -54,14 +53,16 @@ export default function MultipleEntry() {
         id: r.id,
         reason: r.reason,
         tally: r.tally,
-        created_at: r.createdAt
+        created_at: r.createdAt,
+        updated_at: r.updatedAt || r.createdAt
       })));
       
       setPerformanceReasons(performanceData.map(r => ({
         id: r.id,
         reason: r.reason,
         tally: r.tally,
-        created_at: r.createdAt
+        created_at: r.createdAt,
+        updated_at: r.updatedAt || r.createdAt
       })));
     } catch (error) {
       console.error('Error fetching reasons:', error);
@@ -405,20 +406,33 @@ export default function MultipleEntry() {
               }}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                <div style={{
-                  width: '48px',
-                  height: '48px',
-                  borderRadius: '50%',
-                  background: '#16a34a',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: '#ffffff',
-                  fontSize: '18px',
-                  fontWeight: 'bold'
-                }}>
-                  {student.name.charAt(0)}
-                </div>
+                {student.photo_url ? (
+                  <img
+                    src={student.photo_url}
+                    alt={student.name}
+                    style={{
+                      width: '48px',
+                      height: '48px',
+                      borderRadius: '50%',
+                      objectFit: 'cover'
+                    }}
+                  />
+                ) : (
+                  <div style={{
+                    width: '48px',
+                    height: '48px',
+                    borderRadius: '50%',
+                    background: '#16a34a',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#ffffff',
+                    fontSize: '18px',
+                    fontWeight: 'bold'
+                  }}>
+                    {student.name.charAt(0)}
+                  </div>
+                )}
                 <div style={{ flex: 1 }}>
                   <h3 style={{ fontSize: '16px', fontWeight: '600', color: '#1f2937' }}>
                     {student.name}

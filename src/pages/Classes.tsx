@@ -13,7 +13,6 @@ export default function Classes() {
   const [tallies, setTallies] = useState<Record<string, number>>({});
   const [stars, setStars] = useState<Record<string, number>>({});
   const [performanceTallies, setPerformanceTallies] = useState<Record<string, number>>({});
-  const [loading, setLoading] = useState(false);
   const { mentor } = useAuth();
   
   const [showReasonPopup, setShowReasonPopup] = useState<ReasonPopupType>(null);
@@ -52,14 +51,16 @@ export default function Classes() {
         id: r.id,
         reason: r.reason,
         tally: r.tally,
-        created_at: r.createdAt
+        created_at: r.createdAt,
+        updated_at: r.updatedAt || r.createdAt
       })));
       
       setPerformanceReasons(performanceData.map(r => ({
         id: r.id,
         reason: r.reason,
         tally: r.tally,
-        created_at: r.createdAt
+        created_at: r.createdAt,
+        updated_at: r.updatedAt || r.createdAt
       })));
     } catch (error) {
       console.error('Error fetching reasons:', error);
