@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { api } from '../lib/api';
 import { Student, MorningBliss } from '../types';
 import { useAuth } from '../contexts/AuthContext';
@@ -14,7 +14,10 @@ export default function MorningBlissScores() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [recentScores, setRecentScores] = useState<MorningBliss[]>([]);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [expandedPhoto, setExpandedPhoto] = useState<string | null>(null);
   const { mentor } = useAuth();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (activeClasses.length > 0 && !selectedClass) {
@@ -58,6 +61,37 @@ export default function MorningBlissScores() {
     return 0;
   }
 
+  function handlePhotoChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        setMessage('Error: Photo must be less than 5MB');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setPhotoPreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  }
+
+  function removePhoto() {
+    setPhotoPreview(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  }
+
+  function downloadPhoto(photoUrl: string, studentName: string) {
+    const link = document.createElement('a');
+    link.href = photoUrl;
+    link.download = `morning-bliss-${studentName}-${new Date().toISOString().split('T')[0]}.png`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
@@ -78,16 +112,18 @@ export default function MorningBlissScores() {
         throw new Error('Invalid student or mentor');
       }
 
+      const photoUrls = photoPreview ? [photoPreview] : [];
+
       await api.morningBliss.create({
         student_id: selectedStudent,
         class: selectedClass,
         date: today,
         topic,
         score: scoreValue,
-        stars_awarded: starsAwarded,
+        evaluated_by: mentor.short_form,
+        photo_urls: photoUrls,
         is_topper: isTopper,
         is_daily_winner: false,
-        added_by: mentor.id
       });
 
       if (starsAwarded > 0) {
@@ -104,6 +140,10 @@ export default function MorningBlissScores() {
       setMessage('Score added successfully!');
       setTopic('');
       setScore('');
+      setPhotoPreview(null);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
       fetchRecentScores();
     } catch (error: unknown) {
       console.error('Error adding score:', error);
@@ -227,6 +267,63 @@ export default function MorningBlissScores() {
               />
             </div>
 
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', marginBottom: '8px', fontWeight: '500' }}>
+                Photo (Optional)
+              </label>
+              <input
+                type="file"
+                ref={fileInputRef}
+                accept="image/*"
+                onChange={handlePhotoChange}
+                style={{
+                  width: '100%',
+                  padding: '12px',
+                  border: '2px solid #e5e7eb',
+                  borderRadius: '8px',
+                  background: '#f9fafb'
+                }}
+              />
+              {photoPreview && (
+                <div style={{ marginTop: '12px', position: 'relative', display: 'inline-block' }}>
+                  <img 
+                    src={photoPreview} 
+                    alt="Preview" 
+                    style={{ 
+                      width: '120px', 
+                      height: '120px', 
+                      objectFit: 'cover', 
+                      borderRadius: '8px',
+                      border: '2px solid #e5e7eb'
+                    }} 
+                  />
+                  <button
+                    type="button"
+                    onClick={removePhoto}
+                    style={{
+                      position: 'absolute',
+                      top: '-8px',
+                      right: '-8px',
+                      width: '24px',
+                      height: '24px',
+                      borderRadius: '50%',
+                      background: '#ef4444',
+                      color: '#ffffff',
+                      border: 'none',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      fontSize: '14px',
+                      fontWeight: 'bold'
+                    }}
+                  >
+                    x
+                  </button>
+                </div>
+              )}
+            </div>
+
             {message && (
               <div style={{
                 padding: '12px',
@@ -276,38 +373,172 @@ export default function MorningBlissScores() {
             </p>
           ) : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              {recentScores.map((score, index) => (
-                <div
-                  key={score.id || index}
-                  style={{
-                    padding: '12px 16px',
-                    background: '#f9fafb',
-                    borderRadius: '8px',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center'
-                  }}
-                >
-                  <div>
-                    <p style={{ fontWeight: '600' }}>{(score as any).students?.name || 'Student'}</p>
-                    <p style={{ fontSize: '12px', color: '#6b7280' }}>{score.topic}</p>
-                  </div>
-                  <div style={{ textAlign: 'right' }}>
-                    <p style={{ fontSize: '20px', fontWeight: 'bold', color: '#16a34a' }}>
-                      {score.score}
-                    </p>
-                    {score.stars_awarded > 0 && (
-                      <p style={{ fontSize: '12px', color: '#fbbf24' }}>
-                        {'⭐'.repeat(score.stars_awarded)}
-                      </p>
+              {recentScores.map((scoreItem, index) => {
+                const student = students.find(s => s.id === scoreItem.student_id) || students.find(s => s.id === (scoreItem as any).studentId);
+                const studentName = student?.name || (scoreItem as any).students?.name || 'Student';
+                const photoUrls = scoreItem.photo_urls || (scoreItem as any).photoUrls || [];
+                
+                return (
+                  <div
+                    key={scoreItem.id || index}
+                    style={{
+                      padding: '12px 16px',
+                      background: '#f9fafb',
+                      borderRadius: '8px'
+                    }}
+                  >
+                    <div style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      marginBottom: photoUrls.length > 0 ? '12px' : '0'
+                    }}>
+                      <div>
+                        <p style={{ fontWeight: '600' }}>{studentName}</p>
+                        <p style={{ fontSize: '12px', color: '#6b7280' }}>{scoreItem.topic}</p>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <p style={{ fontSize: '20px', fontWeight: 'bold', color: '#16a34a' }}>
+                          {scoreItem.score}
+                        </p>
+                        {scoreItem.is_topper && (
+                          <p style={{ fontSize: '12px', color: '#fbbf24' }}>
+                            Topper
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                    
+                    {photoUrls.length > 0 && (
+                      <div style={{ 
+                        display: 'flex', 
+                        gap: '8px', 
+                        flexWrap: 'wrap',
+                        paddingTop: '8px',
+                        borderTop: '1px solid #e5e7eb'
+                      }}>
+                        {photoUrls.map((photoUrl, photoIndex) => (
+                          <div key={photoIndex} style={{ position: 'relative' }}>
+                            <img 
+                              src={photoUrl} 
+                              alt={`Score photo ${photoIndex + 1}`}
+                              onClick={() => setExpandedPhoto(photoUrl)}
+                              style={{ 
+                                width: '60px', 
+                                height: '60px', 
+                                objectFit: 'cover', 
+                                borderRadius: '6px',
+                                cursor: 'pointer',
+                                border: '1px solid #d1d5db'
+                              }} 
+                            />
+                            <button
+                              onClick={() => downloadPhoto(photoUrl, studentName)}
+                              style={{
+                                position: 'absolute',
+                                bottom: '2px',
+                                right: '2px',
+                                width: '20px',
+                                height: '20px',
+                                borderRadius: '4px',
+                                background: 'rgba(0,0,0,0.6)',
+                                color: '#ffffff',
+                                border: 'none',
+                                cursor: 'pointer',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: '10px'
+                              }}
+                              title="Download"
+                            >
+                              ↓
+                            </button>
+                          </div>
+                        ))}
+                      </div>
                     )}
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
       </div>
+
+      {expandedPhoto && (
+        <div 
+          onClick={() => setExpandedPhoto(null)}
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.8)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '20px'
+          }}
+        >
+          <div style={{ 
+            position: 'relative', 
+            maxWidth: '90%', 
+            maxHeight: '90%' 
+          }}>
+            <img 
+              src={expandedPhoto} 
+              alt="Expanded view"
+              style={{ 
+                maxWidth: '100%', 
+                maxHeight: '80vh', 
+                borderRadius: '8px',
+                boxShadow: '0 4px 20px rgba(0,0,0,0.3)'
+              }} 
+            />
+            <div style={{
+              display: 'flex',
+              gap: '12px',
+              justifyContent: 'center',
+              marginTop: '16px'
+            }}>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  downloadPhoto(expandedPhoto, 'morning-bliss');
+                }}
+                style={{
+                  padding: '10px 20px',
+                  background: '#16a34a',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontWeight: '600'
+                }}
+              >
+                Download Image
+              </button>
+              <button
+                onClick={() => setExpandedPhoto(null)}
+                style={{
+                  padding: '10px 20px',
+                  background: '#6b7280',
+                  color: '#ffffff',
+                  border: 'none',
+                  borderRadius: '8px',
+                  cursor: 'pointer',
+                  fontWeight: '600'
+                }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
