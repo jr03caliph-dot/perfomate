@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { api } from '../lib/api';
 import { useClasses } from '../contexts/ClassesContext';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -34,44 +34,23 @@ export default function AttendanceReports() {
     if (selectedClass) {
       fetchAttendanceData();
     }
-    
-    // Subscribe to realtime updates for attendance
-    const channel = supabase
-      .channel('attendance_reports')
-      .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'attendance' },
-        () => {
-          if (selectedClass) {
-            fetchAttendanceData();
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
   }, [selectedClass, selectedMonth]);
 
   async function fetchAttendanceData() {
     setLoading(true);
     try {
-      const { data: students } = await supabase
-        .from('students')
-        .select('*')
-        .eq('class', selectedClass);
+      const students = await api.students.getAll(selectedClass);
 
       if (!students) return;
 
       const startDate = `${selectedMonth}-01`;
       const endDate = `${selectedMonth}-31`;
 
-      const { data: attendanceRecords } = await supabase
-        .from('attendance')
-        .select('*')
-        .eq('class', selectedClass)
-        .gte('date', startDate)
-        .lte('date', endDate);
+      const attendanceRecords = await api.attendance.getByDateRange({
+        class: selectedClass,
+        start_date: startDate,
+        end_date: endDate
+      });
 
       const attendanceMap: Record<string, StudentAttendance> = {};
 
@@ -142,14 +121,12 @@ export default function AttendanceReports() {
     const startDate = `${selectedMonth}-01`;
     const endDate = `${selectedMonth}-31`;
     
-    const { data: attendanceRecords } = await supabase
-      .from('attendance')
-      .select('*')
-      .eq('class', selectedClass)
-      .gte('date', startDate)
-      .lte('date', endDate);
+    const attendanceRecords = await api.attendance.getByDateRange({
+      class: selectedClass,
+      start_date: startDate,
+      end_date: endDate
+    });
 
-    // Calculate prayer-wise summary
     const prayerCounts = {
       Fajr: { present: 0, absent: 0, hospital: 0, program: 0, reported: 0 },
       Dhuhr: { present: 0, absent: 0, hospital: 0, program: 0, reported: 0 },
@@ -200,7 +177,6 @@ export default function AttendanceReports() {
       headStyles: { fillColor: [22, 163, 74] }
     });
 
-    // Add prayer-wise summary
     let yPos = (doc as any).lastAutoTable.finalY + 20;
     
     doc.setFontSize(14);

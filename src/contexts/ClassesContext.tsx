@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { supabase } from '../lib/supabase';
+import { api } from '../lib/api';
 import { Class } from '../types';
+import { useAuth } from './AuthContext';
 
 interface ClassesContextType {
   classes: Class[];
@@ -11,77 +12,40 @@ interface ClassesContextType {
 
 const ClassesContext = createContext<ClassesContextType | undefined>(undefined);
 
-// Default classes that must always exist
 const DEFAULT_CLASSES = ['JCP03', 'C2A', 'C2B', 'S2A', 'S2B', 'C1A', 'C1B', 'C1C', 'S1A', 'S1B'];
 
 export function ClassesProvider({ children }: { children: ReactNode }) {
   const [classes, setClasses] = useState<Class[]>([]);
-  const [loading, setLoading] = useState(false); // Start as false since we have defaults
+  const [loading, setLoading] = useState(false);
+  const { user } = useAuth();
 
   async function fetchClasses() {
+    if (!user) return;
+    
     try {
-      const { data, error } = await supabase
-        .from('classes')
-        .select('*')
-        .order('name', { ascending: true });
-
-      if (error) throw error;
+      setLoading(true);
+      const data = await api.classes.getAll();
       
-      // Ensure default classes exist immediately
-      const existingClasses = (data || []).map(c => c.name.toUpperCase());
-      
-      const missingClasses = DEFAULT_CLASSES.filter(
-        defaultClass => !existingClasses.includes(defaultClass.toUpperCase())
-      );
-      
-      if (missingClasses.length > 0) {
-        // Insert missing default classes immediately
-        const classesToInsert = missingClasses.map(name => ({
-          name,
-          is_active: true
-        }));
-        
-        const { error: insertError } = await supabase
-          .from('classes')
-          .insert(classesToInsert);
-        
-        if (!insertError) {
-          // Re-fetch classes after insertion
-          const { data: updatedData, error: fetchError } = await supabase
-            .from('classes')
-            .select('*')
-            .order('name', { ascending: true });
-          
-          if (!fetchError) {
-            setClasses(updatedData || []);
-          } else {
-            // If fetch fails, use defaults as fallback
-            const defaultClassesData = DEFAULT_CLASSES.map(name => ({
-              id: `default-${name}`,
-              name,
-              is_active: true,
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString()
-            })) as Class[];
-            setClasses(defaultClassesData);
-          }
-        } else {
-          // If insert fails, merge with defaults
-          const defaultClassesData = DEFAULT_CLASSES.map(name => ({
-            id: `default-${name}`,
-            name,
-            is_active: true,
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString()
-          })) as Class[];
-          setClasses([...defaultClassesData, ...(data || [])]);
-        }
+      if (data.length === 0) {
+        const seededClasses = await api.admin.seedClasses();
+        setClasses(seededClasses.map(c => ({
+          id: c.id,
+          name: c.name,
+          is_active: c.isActive ?? true,
+          created_at: c.createdAt,
+          updated_at: c.updatedAt,
+        })));
       } else {
-        setClasses(data || []);
+        setClasses(data.map(c => ({
+          id: c.id,
+          name: c.name,
+          is_active: c.isActive ?? true,
+          created_at: c.createdAt,
+          updated_at: c.updatedAt,
+        })));
       }
     } catch (error) {
       console.error('Error fetching classes:', error);
-      // On error, use defaults as fallback
       const defaultClassesData = DEFAULT_CLASSES.map(name => ({
         id: `default-${name}`,
         name,
@@ -96,7 +60,6 @@ export function ClassesProvider({ children }: { children: ReactNode }) {
   }
 
   useEffect(() => {
-    // Immediately initialize with default classes
     const defaultClassesData = DEFAULT_CLASSES.map(name => ({
       id: `default-${name}`,
       name,
@@ -106,30 +69,15 @@ export function ClassesProvider({ children }: { children: ReactNode }) {
     })) as Class[];
     setClasses(defaultClassesData);
     
-    // Then fetch from database
-    fetchClasses();
-
-    // Subscribe to realtime updates
-    const channel = supabase
-      .channel('classes_changes')
-      .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'classes' },
-        () => {
-          fetchClasses();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, []);
+    if (user) {
+      fetchClasses();
+    }
+  }, [user]);
 
   const activeClasses = classes
     .filter(c => c.is_active)
     .map(c => c.name)
     .sort((a, b) => {
-      // Sort defaults first, then others alphabetically
       const aIsDefault = DEFAULT_CLASSES.includes(a.toUpperCase());
       const bIsDefault = DEFAULT_CLASSES.includes(b.toUpperCase());
       if (aIsDefault && !bIsDefault) return -1;
@@ -151,4 +99,3 @@ export function useClasses() {
   }
   return context;
 }
-

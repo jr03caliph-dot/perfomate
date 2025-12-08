@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { api } from '../lib/api';
 import { Student, ATTENDANCE_STATUS, PRAYERS } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { useClasses } from '../contexts/ClassesContext';
-import { retryOperation } from '../lib/utils';
 
 export default function MarkAttendance() {
   const { activeClasses } = useClasses();
@@ -24,50 +23,33 @@ export default function MarkAttendance() {
     if (selectedClass) {
       fetchStudents();
     }
-    
-    // Subscribe to realtime updates for attendance
-    const channel = supabase
-      .channel('mark_attendance')
-      .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'attendance' },
-        () => {
-          if (selectedClass) {
-            fetchStudents();
-          }
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
   }, [selectedClass, today]);
 
   async function fetchStudents() {
-    const { data: studentsData } = await supabase
-      .from('students')
-      .select('*')
-      .eq('class', selectedClass)
-      .order('name');
+    try {
+      const studentsData = await api.students.getAll(selectedClass);
 
-    if (studentsData) {
-      setStudents(studentsData);
+      if (studentsData) {
+        setStudents(studentsData);
 
-      const { data: attendanceData } = await supabase
-        .from('attendance')
-        .select('*')
-        .eq('class', selectedClass)
-        .eq('date', today);
+        const attendanceData = await api.attendance.getAll({
+          class: selectedClass,
+          date: today
+        });
 
-      const attendanceMap: Record<string, {status: string; prayer: string}> = {};
-      attendanceData?.forEach(a => {
-        attendanceMap[a.student_id] = {
-          status: a.status,
-          prayer: a.prayer || ''
-        };
-      });
+        const attendanceMap: Record<string, {status: string; prayer: string}> = {};
+        attendanceData?.forEach(a => {
+          attendanceMap[a.student_id] = {
+            status: a.status,
+            prayer: a.prayer || ''
+          };
+        });
 
-      setAttendance(attendanceMap);
+        setAttendance(attendanceMap);
+      }
+    } catch (error) {
+      console.error('Error fetching students:', error);
+      setStudents([]);
     }
   }
 
@@ -86,56 +68,38 @@ export default function MarkAttendance() {
     if (!record) return;
 
     try {
-      await retryOperation(async () => {
-        const { data: existing } = await supabase
-          .from('attendance')
-          .select('*')
-          .eq('student_id', studentId)
-          .eq('date', today)
-          .maybeSingle();
-
-        if (existing) {
-          const { error } = await supabase
-            .from('attendance')
-            .update({
-              status: record.status,
-              prayer: record.prayer,
-              marked_by: mentor?.id
-            })
-            .eq('id', existing.id);
-          if (error) throw error;
-        } else {
-          const { error } = await supabase.from('attendance').insert([{
-            student_id: studentId,
-            class: selectedClass,
-            date: today,
-            status: record.status,
-            prayer: record.prayer,
-            marked_by: mentor?.id
-          }]);
-          if (error) throw error;
-        }
-      }, 5);
+      await api.attendance.create({
+        student_id: studentId,
+        class: selectedClass,
+        date: today,
+        status: record.status,
+        prayer: record.prayer || null,
+        marked_by: mentor?.id
+      });
     } catch (error) {
       console.error('Error saving attendance:', error);
-      // Silently retry
-      setTimeout(() => saveAttendance(studentId), 2000);
     }
   }
 
   async function saveAllAttendance() {
     setLoading(true);
     try {
-      for (const student of students) {
-        if (attendance[student.id]) {
-          await saveAttendance(student.id);
-        }
+      const records = students
+        .filter(student => attendance[student.id])
+        .map(student => ({
+          student_id: student.id,
+          class: selectedClass,
+          date: today,
+          status: attendance[student.id].status,
+          prayer: attendance[student.id].prayer || null,
+          marked_by: mentor?.id
+        }));
+
+      if (records.length > 0) {
+        await api.attendance.createBulk(records);
       }
-      // Success - no alert needed
     } catch (error) {
       console.error('Error saving attendance:', error);
-      // Silently retry
-      setTimeout(() => saveAllAttendance(), 2000);
     } finally {
       setLoading(false);
     }

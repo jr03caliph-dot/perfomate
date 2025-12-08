@@ -16,8 +16,6 @@ import MorningBlissScores from './pages/MorningBlissScores';
 import MorningBlissReports from './pages/MorningBlissReports';
 import AdminPanel from './pages/AdminPanel';
 import ViewHistory from './pages/ViewHistory';
-import { useEffect } from 'react';
-import { createStorageBuckets } from './lib/supabase';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -51,10 +49,6 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
 }
 
 function AppContent() {
-  useEffect(() => {
-    createStorageBuckets();
-  }, []);
-
   return (
     <Routes>
       <Route path="/" element={<Login />} />

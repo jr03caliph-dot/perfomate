@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { api } from '../lib/api';
 import { Student, ClassReason, PerformanceReason } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { useClasses } from '../contexts/ClassesContext';
-import { preventDuplicateOperation, retryOperation, generateOperationId } from '../lib/utils';
 
 type ReasonPopupType = 'class' | 'performance' | null;
 
@@ -14,10 +13,9 @@ export default function Classes() {
   const [tallies, setTallies] = useState<Record<string, number>>({});
   const [stars, setStars] = useState<Record<string, number>>({});
   const [performanceTallies, setPerformanceTallies] = useState<Record<string, number>>({});
-  const [loading, setLoading] = useState(false); // Reduced loading state
+  const [loading, setLoading] = useState(false);
   const { mentor } = useAuth();
   
-  // Reason popup state
   const [showReasonPopup, setShowReasonPopup] = useState<ReasonPopupType>(null);
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
   const [classReasons, setClassReasons] = useState<ClassReason[]>([]);
@@ -25,7 +23,6 @@ export default function Classes() {
   const [reasonSearch, setReasonSearch] = useState('');
   const [studentSearch, setStudentSearch] = useState('');
   
-  // Success animation state
   const [successAnimation, setSuccessAnimation] = useState<Record<string, 'class' | 'star' | 'performance' | null>>({});
 
   useEffect(() => {
@@ -37,115 +34,33 @@ export default function Classes() {
   useEffect(() => {
     if (selectedClass) {
       fetchClassData();
-      
-      // Subscribe to realtime updates for students
-      const channel = supabase
-        .channel('students_classes_changes')
-        .on('postgres_changes',
-          { event: '*', schema: 'public', table: 'students' },
-          () => {
-            fetchClassData();
-          }
-        )
-        .subscribe();
-      
-      return () => {
-        supabase.removeChannel(channel);
-      };
     }
   }, [selectedClass]);
 
   useEffect(() => {
     fetchReasons();
-    
-    // Subscribe to realtime updates for reasons
-    const channel1 = supabase
-      .channel('class_reasons_changes')
-      .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'class_reasons' },
-        () => {
-          fetchReasons();
-        }
-      )
-      .subscribe();
-    
-    const channel2 = supabase
-      .channel('performance_reasons_changes')
-      .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'performance_reasons' },
-        () => {
-          fetchReasons();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel1);
-      supabase.removeChannel(channel2);
-    };
   }, []);
-
-  useEffect(() => {
-    if (selectedClass) {
-      // Subscribe to realtime updates for tallies, stars, and performance
-      const channel1 = supabase
-        .channel('tallies_changes')
-        .on('postgres_changes',
-          { event: '*', schema: 'public', table: 'tallies' },
-          () => {
-            fetchClassData();
-          }
-        )
-        .subscribe();
-      
-      const channel2 = supabase
-        .channel('stars_changes')
-        .on('postgres_changes',
-          { event: '*', schema: 'public', table: 'stars' },
-          () => {
-            fetchClassData();
-          }
-        )
-        .subscribe();
-      
-      const channel3 = supabase
-        .channel('other_tallies_changes')
-        .on('postgres_changes',
-          { event: '*', schema: 'public', table: 'other_tallies' },
-          () => {
-            fetchClassData();
-          }
-        )
-        .subscribe();
-
-      return () => {
-        supabase.removeChannel(channel1);
-        supabase.removeChannel(channel2);
-        supabase.removeChannel(channel3);
-      };
-    }
-  }, [selectedClass]);
 
   async function fetchReasons() {
     try {
       const [classData, performanceData] = await Promise.all([
-        supabase.from('class_reasons').select('*').order('reason'),
-        supabase.from('performance_reasons').select('*').order('reason')
+        api.tallies.getClassReasons(),
+        api.tallies.getPerformanceReasons()
       ]);
       
-      if (classData.error) {
-        console.error('Error fetching class reasons:', classData.error);
-        setClassReasons([]);
-      } else {
-        setClassReasons(classData.data || []);
-      }
+      setClassReasons(classData.map(r => ({
+        id: r.id,
+        reason: r.reason,
+        tally: r.tally,
+        created_at: r.createdAt
+      })));
       
-      if (performanceData.error) {
-        console.error('Error fetching performance reasons:', performanceData.error);
-        setPerformanceReasons([]);
-      } else {
-        setPerformanceReasons(performanceData.data || []);
-      }
+      setPerformanceReasons(performanceData.map(r => ({
+        id: r.id,
+        reason: r.reason,
+        tally: r.tally,
+        created_at: r.createdAt
+      })));
     } catch (error) {
       console.error('Error fetching reasons:', error);
       setClassReasons([]);
@@ -157,53 +72,41 @@ export default function Classes() {
     if (!selectedClass) return;
     
     try {
-      const { data: studentsData, error: studentsError } = await supabase
-        .from('students')
-        .select('*')
-        .eq('class', selectedClass)
-        .order('name');
+      const studentsData = await api.students.getAll(selectedClass);
+      setStudents(studentsData);
 
-      if (studentsError) throw studentsError;
+      if (studentsData.length > 0) {
+        const [talliesData, starsData, otherTalliesData] = await Promise.all([
+          api.tallies.getAll(),
+          api.stars.getAll(),
+          api.tallies.getOther()
+        ]);
 
-      if (studentsData) {
-        setStudents(studentsData);
+        const studentIds = new Set(studentsData.map(s => s.id));
+        
+        const talliesMap: Record<string, number> = {};
+        const starsMap: Record<string, number> = {};
+        const performanceTalliesMap: Record<string, number> = {};
 
-        if (studentsData.length > 0) {
-          const studentIds = studentsData.map(s => s.id);
+        talliesData.filter(t => studentIds.has(t.studentId)).forEach(t => {
+          talliesMap[t.studentId] = (talliesMap[t.studentId] || 0) + t.count;
+        });
 
-          const [talliesData, starsData, otherTalliesData] = await Promise.all([
-            supabase.from('tallies').select('*').in('student_id', studentIds),
-            supabase.from('stars').select('*').in('student_id', studentIds),
-            supabase.from('other_tallies').select('*').in('student_id', studentIds)
-          ]);
+        starsData.filter(s => studentIds.has(s.studentId)).forEach(s => {
+          starsMap[s.studentId] = (starsMap[s.studentId] || 0) + s.count;
+        });
 
-          const talliesMap: Record<string, number> = {};
-          const starsMap: Record<string, number> = {};
-          const performanceTalliesMap: Record<string, number> = {};
+        otherTalliesData.filter(o => studentIds.has(o.studentId)).forEach(o => {
+          performanceTalliesMap[o.studentId] = (performanceTalliesMap[o.studentId] || 0) + o.count;
+        });
 
-          talliesData.data?.forEach(t => {
-            talliesMap[t.student_id] = (talliesMap[t.student_id] || 0) + t.count;
-          });
-
-          starsData.data?.forEach(s => {
-            starsMap[s.student_id] = (starsMap[s.student_id] || 0) + s.count;
-          });
-
-          otherTalliesData.data?.forEach(o => {
-            performanceTalliesMap[o.student_id] = (performanceTalliesMap[o.student_id] || 0) + o.count;
-          });
-
-          setTallies(talliesMap);
-          setStars(starsMap);
-          setPerformanceTallies(performanceTalliesMap);
-        } else {
-          // No students in this class
-          setTallies({});
-          setStars({});
-          setPerformanceTallies({});
-        }
+        setTallies(talliesMap);
+        setStars(starsMap);
+        setPerformanceTallies(performanceTalliesMap);
       } else {
-        setStudents([]);
+        setTallies({});
+        setStars({});
+        setPerformanceTallies({});
       }
     } catch (error) {
       console.error('Error fetching class data:', error);
@@ -219,200 +122,94 @@ export default function Classes() {
   }
 
   async function addClassTally(studentId: string, reason: ClassReason) {
-    const operationId = generateOperationId(studentId, 'class', reason.id);
-    
     try {
-      await preventDuplicateOperation(operationId, async () => {
-        const student = students.find(s => s.id === studentId);
-        if (!student || !mentor) return;
+      const student = students.find(s => s.id === studentId);
+      if (!student || !mentor) return;
 
-        const currentCount = tallies[studentId] || 0;
-        const newCount = currentCount + reason.tally;
-        
-        // Optimistic update - update UI immediately
-        setTallies(prev => ({ ...prev, [studentId]: newCount }));
-        triggerSuccessAnimation(studentId, 'class');
-        setShowReasonPopup(null);
-        setSelectedStudentId(null);
-        setReasonSearch('');
-        
-        await retryOperation(async () => {
-          const { data: existingTally } = await supabase
-            .from('tallies')
-            .select('*')
-            .eq('student_id', studentId)
-            .maybeSingle();
+      const currentCount = tallies[studentId] || 0;
+      const newCount = currentCount + reason.tally;
+      
+      setTallies(prev => ({ ...prev, [studentId]: newCount }));
+      triggerSuccessAnimation(studentId, 'class');
+      setShowReasonPopup(null);
+      setSelectedStudentId(null);
+      setReasonSearch('');
 
-          const finalCount = (existingTally?.count || 0) + reason.tally;
-
-          if (existingTally) {
-            const { error } = await supabase
-              .from('tallies')
-              .update({
-                count: finalCount,
-                fine_amount: finalCount * 10,
-                updated_at: new Date().toISOString()
-              })
-              .eq('id', existingTally.id);
-            if (error) throw error;
-          } else {
-            const { error } = await supabase.from('tallies').insert([{
-              student_id: studentId,
-              count: reason.tally,
-              fine_amount: reason.tally * 10,
-              added_by: mentor.id
-            }]);
-            if (error) throw error;
-          }
-
-          // Record in history
-          await supabase.from('tally_history').insert([{
-            student_id: studentId,
-            class: student.class,
-            mentor_id: mentor.id,
-            mentor_short_form: mentor.short_form,
-            type: 'class',
-            reason: reason.reason,
-            tally_value: reason.tally
-          }]);
-        });
+      await api.tallies.create({
+        student_id: studentId,
+        count: reason.tally,
+        fine_amount: reason.tally * 10,
+        added_by: mentor.id,
+        reason: reason.reason,
+        class: student.class,
+        mentor_short_form: mentor.short_form
       });
+      
+      fetchClassData();
     } catch (error) {
       console.error('Error adding class tally:', error);
-      // Revert optimistic update on error
       const currentCount = tallies[studentId] || 0;
       setTallies(prev => ({ ...prev, [studentId]: Math.max(0, currentCount - reason.tally) }));
-      // Retry immediately without delay
-      addClassTally(studentId, reason).catch(() => {});
     }
   }
 
   async function addStar(studentId: string) {
-    const operationId = generateOperationId(studentId, 'star');
-    
     try {
-      await preventDuplicateOperation(operationId, async () => {
-        const student = students.find(s => s.id === studentId);
-        if (!student || !mentor) return;
+      const student = students.find(s => s.id === studentId);
+      if (!student || !mentor) return;
 
-        const currentCount = stars[studentId] || 0;
-        const newCount = currentCount + 1;
-        
-        // Optimistic update - update UI immediately
-        setStars(prev => ({ ...prev, [studentId]: newCount }));
-        triggerSuccessAnimation(studentId, 'star');
-        
-        await retryOperation(async () => {
-          const { data: existingStar } = await supabase
-            .from('stars')
-            .select('*')
-            .eq('student_id', studentId)
-            .eq('source', 'manual')
-            .maybeSingle();
+      const currentCount = stars[studentId] || 0;
+      const newCount = currentCount + 1;
+      
+      setStars(prev => ({ ...prev, [studentId]: newCount }));
+      triggerSuccessAnimation(studentId, 'star');
 
-          if (existingStar) {
-            const { error } = await supabase
-              .from('stars')
-              .update({ count: existingStar.count + 1 })
-              .eq('id', existingStar.id);
-            if (error) throw error;
-          } else {
-            const { error } = await supabase.from('stars').insert([{
-              student_id: studentId,
-              count: 1,
-              source: 'manual',
-              added_by: mentor.id
-            }]);
-            if (error) throw error;
-          }
-
-          // Record in history
-          await supabase.from('tally_history').insert([{
-            student_id: studentId,
-            class: student.class,
-            mentor_id: mentor.id,
-            mentor_short_form: mentor.short_form,
-            type: 'star',
-            tally_value: 1
-          }]);
-        });
+      await api.stars.create({
+        student_id: studentId,
+        count: 1,
+        source: 'manual',
+        added_by: mentor.id,
+        class: student.class,
+        mentor_short_form: mentor.short_form
       });
+      
+      fetchClassData();
     } catch (error) {
       console.error('Error adding star:', error);
-      // Revert optimistic update on error
       const currentCount = stars[studentId] || 0;
       setStars(prev => ({ ...prev, [studentId]: Math.max(0, currentCount - 1) }));
-      // Retry immediately without delay
-      addStar(studentId).catch(() => {});
     }
   }
 
   async function addPerformanceTally(studentId: string, reason: PerformanceReason) {
-    const operationId = generateOperationId(studentId, 'performance', reason.id);
-    
     try {
-      await preventDuplicateOperation(operationId, async () => {
-        const student = students.find(s => s.id === studentId);
-        if (!student || !mentor) return;
+      const student = students.find(s => s.id === studentId);
+      if (!student || !mentor) return;
 
-        const currentCount = performanceTallies[studentId] || 0;
-        const newCount = currentCount + reason.tally;
-        
-        // Optimistic update - update UI immediately
-        setPerformanceTallies(prev => ({ ...prev, [studentId]: newCount }));
-        triggerSuccessAnimation(studentId, 'performance');
-        setShowReasonPopup(null);
-        setSelectedStudentId(null);
-        setReasonSearch('');
-        
-        await retryOperation(async () => {
-          const { data: existingPerformanceTally } = await supabase
-            .from('other_tallies')
-            .select('*')
-            .eq('student_id', studentId)
-            .maybeSingle();
+      const currentCount = performanceTallies[studentId] || 0;
+      const newCount = currentCount + reason.tally;
+      
+      setPerformanceTallies(prev => ({ ...prev, [studentId]: newCount }));
+      triggerSuccessAnimation(studentId, 'performance');
+      setShowReasonPopup(null);
+      setSelectedStudentId(null);
+      setReasonSearch('');
 
-          const finalCount = (existingPerformanceTally?.count || 0) + reason.tally;
-
-          if (existingPerformanceTally) {
-            const { error } = await supabase
-              .from('other_tallies')
-              .update({
-                count: finalCount,
-                fine_amount: finalCount * 10,
-                updated_at: new Date().toISOString()
-              })
-              .eq('id', existingPerformanceTally.id);
-            if (error) throw error;
-          } else {
-            const { error } = await supabase.from('other_tallies').insert([{
-              student_id: studentId,
-              count: reason.tally,
-              fine_amount: reason.tally * 10,
-              added_by: mentor.id
-            }]);
-            if (error) throw error;
-          }
-
-          // Record in history
-          await supabase.from('tally_history').insert([{
-            student_id: studentId,
-            class: student.class,
-            mentor_id: mentor.id,
-            mentor_short_form: mentor.short_form,
-            type: 'performance',
-            reason: reason.reason,
-            tally_value: reason.tally
-          }]);
-        });
+      await api.tallies.createOther({
+        student_id: studentId,
+        count: reason.tally,
+        fine_amount: reason.tally * 10,
+        added_by: mentor.id,
+        reason: reason.reason,
+        class: student.class,
+        mentor_short_form: mentor.short_form
       });
+      
+      fetchClassData();
     } catch (error) {
       console.error('Error adding performance tally:', error);
-      // Revert optimistic update on error
       const currentCount = performanceTallies[studentId] || 0;
       setPerformanceTallies(prev => ({ ...prev, [studentId]: Math.max(0, currentCount - reason.tally) }));
-      // Retry immediately without delay
-      addPerformanceTally(studentId, reason).catch(() => {});
     }
   }
 
@@ -420,7 +217,6 @@ export default function Classes() {
     setSelectedStudentId(studentId);
     setShowReasonPopup(type);
     setReasonSearch('');
-    // Force fetch reasons when popup opens to ensure latest data
     fetchReasons();
   }
 
@@ -475,7 +271,6 @@ export default function Classes() {
         ))}
       </div>
 
-      {/* Search Bar */}
       {selectedClass && students.length > 0 && (
         <div style={{
           background: '#ffffff',
@@ -671,7 +466,6 @@ export default function Classes() {
                 </button>
               </div>
               
-              {/* Success Animation Overlay */}
               {isAnimating && (
                 <div style={{
                   position: 'absolute',
@@ -695,7 +489,6 @@ export default function Classes() {
         </div>
       )}
 
-      {/* Reason Popup */}
       {showReasonPopup && selectedStudentId && (
         <div
           onClick={() => {
@@ -760,16 +553,11 @@ export default function Classes() {
                 const currentReasons = showReasonPopup === 'class' ? classReasons : performanceReasons;
                 const filteredReasons = showReasonPopup === 'class' ? filteredClassReasons : filteredPerformanceReasons;
                 
-                console.log('Popup type:', showReasonPopup);
-                console.log('Current reasons:', currentReasons);
-                console.log('Filtered reasons:', filteredReasons);
-                console.log('Search term:', reasonSearch);
-                
                 if (filteredReasons.length === 0) {
                   if (currentReasons.length === 0) {
                     return (
                       <div style={{ padding: '40px', textAlign: 'center', color: '#6b7280' }}>
-                        No {showReasonPopup === 'class' ? 'tally' : 'other'} reasons available yet. Please add them in Admin Panel → Manage Reasons.
+                        No {showReasonPopup === 'class' ? 'tally' : 'other'} reasons available yet. Please add them in Admin Panel.
                       </div>
                     );
                   } else {
@@ -871,4 +659,3 @@ export default function Classes() {
     </div>
   );
 }
-

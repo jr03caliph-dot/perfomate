@@ -1,7 +1,11 @@
 import { createContext, useContext, useEffect, useState, ReactNode } from 'react';
-import { User } from '@supabase/supabase-js';
-import { supabase } from '../lib/supabase';
+import { api } from '../lib/api';
 import { Mentor } from '../types';
+
+interface User {
+  id: string;
+  email: string;
+}
 
 interface AuthContextType {
   user: User | null;
@@ -20,82 +24,67 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        fetchMentor(session.user.id);
-      } else {
-        setLoading(false);
-      }
-    });
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      (() => {
-        setUser(session?.user ?? null);
-        if (session?.user) {
-          fetchMentor(session.user.id);
-        } else {
-          setMentor(null);
-          setLoading(false);
-        }
-      })();
-    });
-
-    return () => subscription.unsubscribe();
+    checkSession();
   }, []);
 
-  async function fetchMentor(userId: string) {
+  async function checkSession() {
     try {
-      const { data, error } = await supabase
-        .from('mentors')
-        .select('*')
-        .eq('id', userId)
-        .maybeSingle();
-
-      if (error) throw error;
-      setMentor(data);
+      const { user: sessionUser, mentor: sessionMentor } = await api.auth.session();
+      if (sessionUser) {
+        setUser({ id: sessionUser.id, email: sessionUser.email });
+        setMentor(sessionMentor ? {
+          id: sessionMentor.id,
+          email: sessionMentor.email,
+          full_name: sessionMentor.fullName,
+          short_form: sessionMentor.shortForm,
+          created_at: sessionMentor.createdAt,
+        } : null);
+      }
     } catch (error) {
-      console.error('Error fetching mentor:', error);
+      console.error('Error checking session:', error);
     } finally {
       setLoading(false);
     }
   }
 
   async function signUp(email: string, password: string, fullName: string, shortForm: string) {
-    const { data: authData, error: authError } = await supabase.auth.signUp({
+    const { user: newUser, mentor: newMentor } = await api.auth.signup({
       email,
       password,
+      fullName,
+      shortForm,
     });
 
-    if (authError) throw authError;
-    if (!authData.user) throw new Error('Failed to create user');
-
-    const { error: mentorError } = await supabase
-      .from('mentors')
-      .insert([
-        {
-          id: authData.user.id,
-          email,
-          full_name: fullName,
-          short_form: shortForm,
-        },
-      ]);
-
-    if (mentorError) throw mentorError;
+    setUser({ id: newUser.id, email: newUser.email });
+    setMentor({
+      id: newMentor.id,
+      email: newMentor.email,
+      full_name: newMentor.fullName,
+      short_form: newMentor.shortForm,
+      created_at: newMentor.createdAt,
+    });
   }
 
   async function signIn(email: string, password: string) {
-    const { error } = await supabase.auth.signInWithPassword({
+    const { user: signedInUser, mentor: signedInMentor } = await api.auth.signin({
       email,
       password,
     });
 
-    if (error) throw error;
+    setUser({ id: signedInUser.id, email: signedInUser.email });
+    setMentor({
+      id: signedInMentor.id,
+      email: signedInMentor.email,
+      full_name: signedInMentor.fullName,
+      short_form: signedInMentor.shortForm,
+      created_at: signedInMentor.createdAt,
+    });
   }
 
   async function signOut() {
-    const { error } = await supabase.auth.signOut();
-    if (error) throw error;
+    await api.auth.signout();
+    setUser(null);
+    setMentor(null);
   }
 
   return (

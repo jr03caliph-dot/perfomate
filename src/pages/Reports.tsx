@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { api } from '../lib/api';
 import { useClasses } from '../contexts/ClassesContext';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
@@ -30,24 +30,25 @@ export default function Reports() {
       const classReports: ClassReport[] = [];
 
       for (const className of activeClasses) {
-        const { data: students } = await supabase
-          .from('students')
-          .select('id')
-          .eq('class', className);
+        const students = await api.students.getAll(className);
 
         if (!students || students.length === 0) continue;
 
         const studentIds = students.map(s => s.id);
 
-        const [talliesRes, starsRes, otherTalliesRes] = await Promise.all([
-          supabase.from('tallies').select('count').in('student_id', studentIds),
-          supabase.from('stars').select('count').in('student_id', studentIds),
-          supabase.from('other_tallies').select('count').in('student_id', studentIds)
+        const [talliesData, starsData, otherTalliesData] = await Promise.all([
+          api.tallies.getAll(),
+          api.stars.getAll(),
+          api.tallies.getOther()
         ]);
 
-        const totalTallies = talliesRes.data?.reduce((sum, t) => sum + t.count, 0) || 0;
-        const totalStars = starsRes.data?.reduce((sum, s) => sum + s.count, 0) || 0;
-        const totalOtherTallies = otherTalliesRes.data?.reduce((sum, o) => sum + o.count, 0) || 0;
+        const filteredTallies = talliesData.filter(t => studentIds.includes(t.student_id));
+        const filteredStars = starsData.filter(s => studentIds.includes(s.student_id));
+        const filteredOtherTallies = otherTalliesData.filter(o => studentIds.includes(o.student_id));
+
+        const totalTallies = filteredTallies.reduce((sum, t) => sum + t.count, 0) || 0;
+        const totalStars = filteredStars.reduce((sum, s) => sum + s.count, 0) || 0;
+        const totalOtherTallies = filteredOtherTallies.reduce((sum, o) => sum + o.count, 0) || 0;
 
         const adjustedTallies = Math.max(0, totalTallies - (totalStars * 2));
         const netFine = (adjustedTallies * 10) + (totalOtherTallies * 10);

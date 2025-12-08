@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { api } from '../lib/api';
 import { PRAYERS } from '../types';
 import { useClasses } from '../contexts/ClassesContext';
 import jsPDF from 'jspdf';
@@ -35,36 +35,27 @@ export default function ViewByPrayer() {
 
     setLoading(true);
     try {
-      let query = supabase
-        .from('attendance')
-        .select(`
-          id,
-          status,
-          prayer,
-          date,
-          students!inner(id, name, roll_number, class)
-        `)
-        .eq('prayer', selectedPrayer)
-        .eq('date', selectedDate)
-        .in('status', ['Absent', 'Hospital', 'Program', 'Reported']);
+      const params: { class?: string; date?: string; prayer?: string } = {
+        prayer: selectedPrayer,
+        date: selectedDate
+      };
 
       if (selectedClass) {
-        query = query.eq('class', selectedClass);
+        params.class = selectedClass;
       }
 
-      const { data: records, error } = await query.order('students(name)');
-
-      if (error) {
-        console.error('Error fetching data:', error);
-        return;
-      }
+      const records = await api.attendance.getAll(params);
 
       if (records) {
-        const data = records.map((record: any) => ({
-          studentId: record.students.id,
-          studentName: record.students.name,
-          rollNumber: record.students.roll_number,
-          class: record.students.class,
+        const filteredRecords = records.filter((record: any) => 
+          ['Absent', 'Hospital', 'Program', 'Reported'].includes(record.status)
+        );
+
+        const data = filteredRecords.map((record: any) => ({
+          studentId: record.students?.id || record.student_id,
+          studentName: record.students?.name || 'Unknown',
+          rollNumber: record.students?.roll_number || '',
+          class: record.students?.class || record.class,
           status: record.status,
           prayer: record.prayer,
           date: record.date
@@ -74,6 +65,7 @@ export default function ViewByPrayer() {
       }
     } catch (error) {
       console.error('Error fetching attendance data:', error);
+      setAttendanceData([]);
     } finally {
       setLoading(false);
     }
@@ -316,4 +308,3 @@ export default function ViewByPrayer() {
     </div>
   );
 }
-

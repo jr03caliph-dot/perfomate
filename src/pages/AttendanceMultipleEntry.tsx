@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { api } from '../lib/api';
 import { Student, ATTENDANCE_STATUS, PRAYERS } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { useClasses } from '../contexts/ClassesContext';
-import { retryOperation } from '../lib/utils';
 
 export default function AttendanceMultipleEntry() {
   const { activeClasses } = useClasses();
@@ -29,13 +28,13 @@ export default function AttendanceMultipleEntry() {
   }, [selectedClass]);
 
   async function fetchStudents() {
-    const { data } = await supabase
-      .from('students')
-      .select('*')
-      .eq('class', selectedClass)
-      .order('name');
-
-    if (data) setStudents(data);
+    try {
+      const data = await api.students.getAll(selectedClass);
+      setStudents(data || []);
+    } catch (error) {
+      console.error('Error fetching students:', error);
+      setStudents([]);
+    }
   }
 
   function toggleStudent(studentId: string) {
@@ -58,52 +57,27 @@ export default function AttendanceMultipleEntry() {
 
   async function handleSubmit() {
     if (selectedStudents.size === 0) {
-      return; // Silently skip if no students selected
+      return;
     }
 
     setLoading(true);
     try {
       const studentIds = Array.from(selectedStudents);
+      const records = studentIds.map(studentId => ({
+        student_id: studentId,
+        class: selectedClass,
+        date: today,
+        status,
+        prayer: prayer || null,
+        marked_by: mentor?.id
+      }));
 
-      for (const studentId of studentIds) {
-        await retryOperation(async () => {
-          const { data: existing } = await supabase
-            .from('attendance')
-            .select('*')
-            .eq('student_id', studentId)
-            .eq('date', today)
-            .maybeSingle();
-
-          if (existing) {
-            const { error } = await supabase
-              .from('attendance')
-              .update({
-                status,
-                prayer: prayer || null,
-                marked_by: mentor?.id
-              })
-              .eq('id', existing.id);
-            if (error) throw error;
-          } else {
-            const { error } = await supabase.from('attendance').insert([{
-              student_id: studentId,
-              class: selectedClass,
-              date: today,
-              status,
-              prayer: prayer || null,
-              marked_by: mentor?.id
-            }]);
-            if (error) throw error;
-          }
-        }, 5);
-      }
+      await api.attendance.createBulk(records);
 
       setSelectedStudents(new Set());
       setPrayer('');
     } catch (error) {
       console.error('Error marking attendance:', error);
-      // Silently retry
-      setTimeout(() => handleSubmit(), 2000);
     } finally {
       setLoading(false);
     }

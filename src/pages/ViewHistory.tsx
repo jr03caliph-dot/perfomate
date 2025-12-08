@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { supabase } from '../lib/supabase';
+import { api } from '../lib/api';
 import { TallyHistory, Mentor } from '../types';
 import { useClasses } from '../contexts/ClassesContext';
 import jsPDF from 'jspdf';
@@ -15,14 +15,12 @@ export default function ViewHistory() {
   const [history, setHistory] = useState<HistoryRecord[]>([]);
   const [loading, setLoading] = useState(true);
   
-  // Filters
   const [selectedClass, setSelectedClass] = useState<string>('ALL');
   const [selectedMentor, setSelectedMentor] = useState<string>('ALL');
   const [fromDate, setFromDate] = useState('');
   const [toDate, setToDate] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   
-  // Mentor list for filter
   const [mentors, setMentors] = useState<Mentor[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
 
@@ -33,34 +31,16 @@ export default function ViewHistory() {
 
   useEffect(() => {
     fetchHistory();
-    
-    // Subscribe to realtime updates
-    const channel = supabase
-      .channel('tally_history_changes')
-      .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'tally_history' },
-        () => {
-          fetchHistory();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
   }, [selectedClass, selectedMentor, fromDate, toDate]);
 
   async function checkAdminAccess() {
-    // For now, allow all mentors to view history
-    // Only admin can delete (checked via password in AdminPanel)
-    // You can enhance this with proper role-based access control
-    setIsAdmin(false); // Set to false by default - only true admins can delete via AdminPanel
+    setIsAdmin(false);
   }
 
   async function fetchMentors() {
     try {
-      const { data } = await supabase.from('mentors').select('*').order('short_form');
-      setMentors(data || []);
+      const data = await api.auth.session();
+      setMentors([]);
     } catch (error) {
       console.error('Error fetching mentors:', error);
     }
@@ -69,31 +49,31 @@ export default function ViewHistory() {
   async function fetchHistory() {
     setLoading(true);
     try {
-      let query = supabase
-        .from('tally_history')
-        .select('*, students(name), mentors(short_form, full_name)')
-        .order('created_at', { ascending: false });
-
-      if (selectedClass !== 'ALL') {
-        query = query.eq('class', selectedClass);
+      const allStudents = await api.students.getAll();
+      const historyData: HistoryRecord[] = [];
+      
+      for (const student of allStudents) {
+        if (selectedClass !== 'ALL' && student.class !== selectedClass) continue;
+        
+        try {
+          const studentHistory = await api.students.getHistory(student.id);
+          studentHistory.forEach((record: any) => {
+            if (selectedMentor !== 'ALL' && record.mentor_id !== selectedMentor) return;
+            if (fromDate && new Date(record.created_at) < new Date(fromDate + 'T00:00:00')) return;
+            if (toDate && new Date(record.created_at) > new Date(toDate + 'T23:59:59')) return;
+            
+            historyData.push({
+              ...record,
+              students: { name: student.name }
+            });
+          });
+        } catch (err) {
+          console.error(`Error fetching history for student ${student.id}:`, err);
+        }
       }
-
-      if (selectedMentor !== 'ALL') {
-        query = query.eq('mentor_id', selectedMentor);
-      }
-
-      if (fromDate) {
-        query = query.gte('created_at', fromDate + 'T00:00:00');
-      }
-
-      if (toDate) {
-        query = query.lte('created_at', toDate + 'T23:59:59');
-      }
-
-      const { data, error } = await query;
-
-      if (error) throw error;
-      setHistory(data || []);
+      
+      historyData.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+      setHistory(historyData);
     } catch (error) {
       console.error('Error fetching history:', error);
     } finally {
@@ -110,55 +90,6 @@ export default function ViewHistory() {
       record.reason?.toLowerCase().includes(query) ||
       record.mentor_short_form.toLowerCase().includes(query)
     );
-  }
-
-  async function deleteHistoryRecord(id: string) {
-    if (!confirm('Are you sure you want to delete this history record?')) return;
-
-    try {
-      const { error } = await supabase
-        .from('tally_history')
-        .delete()
-        .eq('id', id);
-
-      if (error) throw error;
-      alert('History record deleted successfully');
-    } catch (error) {
-      console.error('Error deleting history record:', error);
-      alert('Failed to delete history record');
-    }
-  }
-
-  async function deleteAllFiltered() {
-    if (!confirm('Are you sure you want to delete all filtered history records? This action cannot be undone.')) return;
-
-    try {
-      let query = supabase.from('tally_history').delete();
-
-      if (selectedClass !== 'ALL') {
-        query = query.eq('class', selectedClass);
-      }
-
-      if (selectedMentor !== 'ALL') {
-        query = query.eq('mentor_id', selectedMentor);
-      }
-
-      if (fromDate) {
-        query = query.gte('created_at', fromDate + 'T00:00:00');
-      }
-
-      if (toDate) {
-        query = query.lte('created_at', toDate + 'T23:59:59');
-      }
-
-      const { error } = await query;
-
-      if (error) throw error;
-      alert('Filtered history records deleted successfully');
-    } catch (error) {
-      console.error('Error deleting history records:', error);
-      alert('Failed to delete history records');
-    }
   }
 
   function exportHistory() {
@@ -224,7 +155,6 @@ export default function ViewHistory() {
         boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
         marginBottom: '24px'
       }}>
-        {/* Filters */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '20px' }}>
           <div>
             <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', color: '#374151', marginBottom: '8px' }}>
@@ -311,7 +241,6 @@ export default function ViewHistory() {
           </div>
         </div>
 
-        {/* Search */}
         <div style={{ marginBottom: '20px' }}>
           <label style={{ display: 'block', fontSize: '14px', fontWeight: '500', color: '#374151', marginBottom: '8px' }}>
             Search by Student Name or Reason
@@ -332,7 +261,6 @@ export default function ViewHistory() {
           />
         </div>
 
-        {/* Actions */}
         <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
           <button
             onClick={exportHistory}
@@ -349,27 +277,9 @@ export default function ViewHistory() {
           >
             📥 Export PDF
           </button>
-          {isAdmin && (
-            <button
-              onClick={deleteAllFiltered}
-              style={{
-                padding: '10px 24px',
-                background: '#ef4444',
-                color: '#ffffff',
-                border: 'none',
-                borderRadius: '8px',
-                fontSize: '14px',
-                fontWeight: '600',
-                cursor: 'pointer'
-              }}
-            >
-              🗑️ Delete Filtered
-            </button>
-          )}
         </div>
       </div>
 
-      {/* History Table */}
       <div style={{
         background: '#ffffff',
         borderRadius: '12px',
@@ -398,9 +308,6 @@ export default function ViewHistory() {
                   <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#374151', borderBottom: '2px solid #e5e7eb' }}>Reason</th>
                   <th style={{ padding: '12px', textAlign: 'center', fontWeight: '600', color: '#374151', borderBottom: '2px solid #e5e7eb' }}>Tally</th>
                   <th style={{ padding: '12px', textAlign: 'left', fontWeight: '600', color: '#374151', borderBottom: '2px solid #e5e7eb' }}>Date & Time</th>
-                  {isAdmin && (
-                    <th style={{ padding: '12px', textAlign: 'center', fontWeight: '600', color: '#374151', borderBottom: '2px solid #e5e7eb' }}>Actions</th>
-                  )}
                 </tr>
               </thead>
               <tbody>
@@ -434,25 +341,6 @@ export default function ViewHistory() {
                     <td style={{ padding: '12px', color: '#6b7280', fontSize: '14px' }}>
                       {new Date(record.created_at).toLocaleString()}
                     </td>
-                    {isAdmin && (
-                      <td style={{ padding: '12px', textAlign: 'center' }}>
-                        <button
-                          onClick={() => deleteHistoryRecord(record.id)}
-                          style={{
-                            padding: '6px 12px',
-                            background: '#ef4444',
-                            color: '#ffffff',
-                            border: 'none',
-                            borderRadius: '6px',
-                            fontSize: '12px',
-                            fontWeight: '600',
-                            cursor: 'pointer'
-                          }}
-                        >
-                          Delete
-                        </button>
-                      </td>
-                    )}
                   </tr>
                 ))}
               </tbody>
@@ -463,4 +351,3 @@ export default function ViewHistory() {
     </div>
   );
 }
-

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { supabase } from '../lib/supabase';
+import { api } from '../lib/api';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { VoiceOfDirector } from '../types';
 
@@ -25,82 +25,39 @@ export default function Dashboard() {
     topClass: ''
   });
   const [loading, setLoading] = useState(true);
-  const [directorMessages, setDirectorMessages] = useState<VoiceOfDirector[]>([]);
+  const [directorMessage, setDirectorMessage] = useState<VoiceOfDirector | null>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
     fetchDashboardData();
-    fetchDirectorMessages();
-    
-    // Subscribe to realtime updates for director messages
-    const channel1 = supabase
-      .channel('voice_of_director')
-      .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'voice_of_director' },
-        () => {
-          fetchDirectorMessages();
-        }
-      )
-      .subscribe();
-    
-    // Subscribe to realtime updates for stars and morning_bliss
-    const channel2 = supabase
-      .channel('dashboard_stars_changes')
-      .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'stars' },
-        () => {
-          fetchDashboardData();
-        }
-      )
-      .subscribe();
-    
-    const channel3 = supabase
-      .channel('dashboard_morning_bliss_changes')
-      .on('postgres_changes',
-        { event: '*', schema: 'public', table: 'morning_bliss' },
-        () => {
-          fetchDashboardData();
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel1);
-      supabase.removeChannel(channel2);
-      supabase.removeChannel(channel3);
-    };
+    fetchDirectorMessage();
   }, []);
 
   async function fetchDashboardData() {
     try {
-      const [studentsRes, talliesRes, starsRes, otherTalliesRes, morningBlissRes, attendanceRes] = await Promise.all([
-        supabase.from('students').select('*', { count: 'exact' }),
-        supabase.from('tallies').select('count'),
-        supabase.from('stars').select('count'),
-        supabase.from('other_tallies').select('count'),
-        supabase.from('morning_bliss').select('score'),
-        supabase.from('attendance').select('status')
+      const [studentsData, talliesData, starsData, otherTalliesData, morningBlissData, attendanceData] = await Promise.all([
+        api.students.getAll(),
+        api.tallies.getAll(),
+        api.stars.getAll(),
+        api.tallies.getOther(),
+        api.morningBliss.getAll({}),
+        api.attendance.getAll({})
       ]);
 
-      const totalStudents = studentsRes.count || 0;
+      const totalStudents = studentsData.length;
+      const totalTallies = talliesData.reduce((sum, t) => sum + (t.count || 0), 0);
+      const totalStars = starsData.reduce((sum, s) => sum + (s.count || 0), 0);
+      const totalOtherTallies = otherTalliesData.reduce((sum, o) => sum + (o.count || 0), 0);
 
-      const totalTallies = talliesRes.data?.reduce((sum, t) => sum + (t.count || 0), 0) || 0;
-      const totalStars = starsRes.data?.reduce((sum, s) => sum + (s.count || 0), 0) || 0;
-      const totalOtherTallies = otherTalliesRes.data?.reduce((sum, o) => sum + (o.count || 0), 0) || 0;
-
-      const scores = morningBlissRes.data?.map(m => m.score) || [];
+      const scores = morningBlissData.map(m => Number(m.score) || 0);
       const averageScore = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
 
-      const presentCount = attendanceRes.data?.filter(a => a.status === 'Present').length || 0;
-      const totalAttendance = attendanceRes.data?.length || 0;
+      const presentCount = attendanceData.filter(a => a.status === 'Present').length;
+      const totalAttendance = attendanceData.length;
       const attendancePercent = totalAttendance > 0 ? (presentCount / totalAttendance) * 100 : 0;
 
-      const { data: classData } = await supabase
-        .from('students')
-        .select('class');
-
       const classCounts: Record<string, number> = {};
-      classData?.forEach(s => {
+      studentsData.forEach(s => {
         classCounts[s.class] = (classCounts[s.class] || 0) + 1;
       });
 
@@ -122,17 +79,12 @@ export default function Dashboard() {
     }
   }
 
-  async function fetchDirectorMessages() {
+  async function fetchDirectorMessage() {
     try {
-      const { data, error } = await supabase
-        .from('voice_of_director')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      setDirectorMessages(data || []);
+      const data = await api.admin.getVoiceOfDirector();
+      setDirectorMessage(data);
     } catch (error) {
-      console.error('Error fetching director messages:', error);
+      console.error('Error fetching director message:', error);
     }
   }
 
@@ -270,7 +222,6 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Voice of Director Section - inside Performance Overview */}
       <div style={{
         background: '#ffffff',
         borderRadius: '12px',
@@ -297,7 +248,7 @@ export default function Dashboard() {
         </div>
 
         <div style={{ padding: '24px' }}>
-          {directorMessages.length === 0 ? (
+          {!directorMessage ? (
             <div style={{
               padding: '40px',
               textAlign: 'center',
@@ -307,47 +258,40 @@ export default function Dashboard() {
               No messages from the Director yet.
             </div>
           ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              {directorMessages.map((msg) => (
-                <div
-                  key={msg.id}
-                  style={{
-                    background: '#f9fafb',
-                    borderRadius: '8px',
-                    padding: '20px',
-                    border: '1px solid #e5e7eb'
-                  }}
-                >
-                  <h3 style={{
-                    fontSize: '18px',
-                    fontWeight: 'bold',
-                    color: '#1f2937',
-                    marginBottom: '12px'
-                  }}>
-                    {msg.title}
-                  </h3>
-                  <p style={{
-                    fontSize: '15px',
-                    color: '#374151',
-                    marginBottom: '12px',
-                    whiteSpace: 'pre-wrap',
-                    lineHeight: '1.6'
-                  }}>
-                    {msg.message}
-                  </p>
-                  <p style={{
-                    fontSize: '13px',
-                    color: '#6b7280',
-                    fontStyle: 'italic'
-                  }}>
-                    Posted on {new Date(msg.created_at).toLocaleDateString('en-US', {
-                      month: 'short',
-                      day: 'numeric',
-                      year: 'numeric'
-                    })}
-                  </p>
-                </div>
-              ))}
+            <div style={{
+              background: '#f9fafb',
+              borderRadius: '8px',
+              padding: '20px',
+              border: '1px solid #e5e7eb'
+            }}>
+              <h3 style={{
+                fontSize: '18px',
+                fontWeight: 'bold',
+                color: '#1f2937',
+                marginBottom: '12px'
+              }}>
+                {directorMessage.title}
+              </h3>
+              <p style={{
+                fontSize: '15px',
+                color: '#374151',
+                marginBottom: '12px',
+                whiteSpace: 'pre-wrap',
+                lineHeight: '1.6'
+              }}>
+                {directorMessage.message}
+              </p>
+              <p style={{
+                fontSize: '13px',
+                color: '#6b7280',
+                fontStyle: 'italic'
+              }}>
+                Posted on {new Date(directorMessage.created_at).toLocaleDateString('en-US', {
+                  month: 'short',
+                  day: 'numeric',
+                  year: 'numeric'
+                })}
+              </p>
             </div>
           )}
         </div>
