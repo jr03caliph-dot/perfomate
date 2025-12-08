@@ -138,9 +138,11 @@ export const api = {
   },
 
   admin: {
-    getVoiceOfDirector: () => request<any>('/admin/voice-of-director'),
-    updateVoiceOfDirector: (data: { title: string; message: string }) =>
+    getVoiceOfDirector: () => request<any[]>('/admin/voice-of-director'),
+    createVoiceOfDirector: (data: { title: string; message: string }) =>
       request<any>('/admin/voice-of-director', { method: 'POST', body: JSON.stringify(data) }),
+    deleteVoiceOfDirector: (id: string) =>
+      request<{ success: boolean }>(`/admin/voice-of-director/${id}`, { method: 'DELETE' }),
     getClassReasons: () => request<any[]>('/admin/reasons/class'),
     createClassReason: (data: { reason: string; tally?: number }) =>
       request<any>('/admin/reasons/class', { method: 'POST', body: JSON.stringify(data) }),

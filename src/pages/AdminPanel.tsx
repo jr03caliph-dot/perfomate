@@ -177,36 +177,54 @@ export default function AdminPanel() {
 function VoiceOfDirectorTab() {
   const [title, setTitle] = useState('');
   const [message, setMessage] = useState('');
+  const [messages, setMessages] = useState<VoiceOfDirector[]>([]);
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState('');
 
   useEffect(() => {
-    fetchMessage();
+    fetchMessages();
   }, []);
 
-  async function fetchMessage() {
+  async function fetchMessages() {
     try {
       const data = await api.admin.getVoiceOfDirector();
-      if (data) {
-        setTitle(data.title || '');
-        setMessage(data.message || '');
-      }
+      setMessages(data || []);
     } catch (error) {
-      console.error('Error fetching message:', error);
+      console.error('Error fetching messages:', error);
     }
   }
 
   async function handleSave() {
+    if (!title.trim() || !message.trim()) {
+      setStatus('Please fill in both title and message');
+      setTimeout(() => setStatus(''), 3000);
+      return;
+    }
+    
     setLoading(true);
     try {
-      await api.admin.updateVoiceOfDirector({ title, message });
-      setStatus('Message saved successfully!');
+      await api.admin.createVoiceOfDirector({ title, message });
+      setStatus('Message added successfully!');
+      setTitle('');
+      setMessage('');
+      fetchMessages();
       setTimeout(() => setStatus(''), 3000);
     } catch (error) {
       console.error('Error saving message:', error);
       setStatus('Error saving message');
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleDelete(id: string) {
+    if (!confirm('Are you sure you want to delete this message?')) return;
+    
+    try {
+      await api.admin.deleteVoiceOfDirector(id);
+      fetchMessages();
+    } catch (error) {
+      console.error('Error deleting message:', error);
     }
   }
 
@@ -221,6 +239,7 @@ function VoiceOfDirectorTab() {
           type="text"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
+          placeholder="Enter message title..."
           style={{
             width: '100%',
             padding: '12px',
@@ -234,7 +253,8 @@ function VoiceOfDirectorTab() {
         <textarea
           value={message}
           onChange={(e) => setMessage(e.target.value)}
-          rows={6}
+          placeholder="Enter your message..."
+          rows={4}
           style={{
             width: '100%',
             padding: '12px',
@@ -249,8 +269,8 @@ function VoiceOfDirectorTab() {
           padding: '12px',
           borderRadius: '8px',
           marginBottom: '16px',
-          background: status.includes('Error') ? '#fee2e2' : '#d1fae5',
-          color: status.includes('Error') ? '#991b1b' : '#065f46'
+          background: status.includes('Error') || status.includes('Please') ? '#fee2e2' : '#d1fae5',
+          color: status.includes('Error') || status.includes('Please') ? '#991b1b' : '#065f46'
         }}>
           {status}
         </div>
@@ -269,8 +289,55 @@ function VoiceOfDirectorTab() {
           opacity: loading ? 0.6 : 1
         }}
       >
-        {loading ? 'Saving...' : 'Save Message'}
+        {loading ? 'Adding...' : 'Add Message'}
       </button>
+
+      {messages.length > 0 && (
+        <div style={{ marginTop: '32px' }}>
+          <h3 style={{ fontSize: '18px', fontWeight: '600', marginBottom: '16px', color: '#374151' }}>
+            All Messages ({messages.length})
+          </h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {messages.map((msg) => (
+              <div
+                key={msg.id}
+                style={{
+                  padding: '16px',
+                  background: '#f0fdf4',
+                  border: '1px solid #bbf7d0',
+                  borderRadius: '8px'
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                  <div style={{ flex: 1 }}>
+                    <h4 style={{ fontWeight: '600', color: '#166534', marginBottom: '8px' }}>
+                      {msg.title}
+                    </h4>
+                    <p style={{ color: '#374151', whiteSpace: 'pre-wrap' }}>{msg.message}</p>
+                    <p style={{ fontSize: '12px', color: '#6b7280', marginTop: '8px' }}>
+                      {msg.created_at ? new Date(msg.created_at).toLocaleString() : ''}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleDelete(msg.id)}
+                    style={{
+                      padding: '6px 12px',
+                      background: '#ef4444',
+                      color: '#ffffff',
+                      border: 'none',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      marginLeft: '12px'
+                    }}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

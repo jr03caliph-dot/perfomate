@@ -22,8 +22,8 @@ router.use(requireAuth);
 
 router.get("/voice-of-director", async (req, res) => {
   try {
-    const result = await db.select().from(voiceOfDirector).limit(1);
-    res.json(result[0] || null);
+    const result = await db.select().from(voiceOfDirector).orderBy(sql`${voiceOfDirector.createdAt} DESC`);
+    res.json(result);
   } catch (error) {
     console.error("Error fetching voice of director:", error);
     res.status(500).json({ error: "Failed to fetch voice of director" });
@@ -34,25 +34,26 @@ router.post("/voice-of-director", async (req, res) => {
   try {
     const { title, message } = req.body;
 
-    const existing = await db.select().from(voiceOfDirector).limit(1);
-
-    let result;
-    if (existing.length > 0) {
-      [result] = await db.update(voiceOfDirector)
-        .set({ title, message, updatedAt: new Date() })
-        .where(eq(voiceOfDirector.id, existing[0].id))
-        .returning();
-    } else {
-      [result] = await db.insert(voiceOfDirector).values({
-        title,
-        message,
-      }).returning();
-    }
+    const [result] = await db.insert(voiceOfDirector).values({
+      title,
+      message,
+    }).returning();
 
     res.json(result);
   } catch (error) {
-    console.error("Error updating voice of director:", error);
-    res.status(500).json({ error: "Failed to update voice of director" });
+    console.error("Error creating voice of director message:", error);
+    res.status(500).json({ error: "Failed to create voice of director message" });
+  }
+});
+
+router.delete("/voice-of-director/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    await db.delete(voiceOfDirector).where(eq(voiceOfDirector.id, id));
+    res.json({ success: true });
+  } catch (error) {
+    console.error("Error deleting voice of director message:", error);
+    res.status(500).json({ error: "Failed to delete voice of director message" });
   }
 });
 
