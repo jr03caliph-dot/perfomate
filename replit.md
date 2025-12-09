@@ -110,6 +110,12 @@ Default admin panel password: `performate@123`
 - Updated all frontend pages to use new API client
 - Removed Supabase dependencies
 - Configured Vite proxy for API requests
+- Morning Bliss star awards: 9.0 score = 1 star, 9.5 = 2 stars, 10.0 = 3 stars
+- Simplified attendance to only show Namaz with Present/Absent options
+- Added evaluated_by (mentor name) display in Morning Bliss daily view and reports
+- Updated PDF export format with proper columns and styling
+- Morning Bliss API now joins with students table for student names
+- API responses normalized to snake_case for frontend compatibility
 
 ## API Endpoints
 
