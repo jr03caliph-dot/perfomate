@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { api } from '../lib/api';
-import { Student, ATTENDANCE_STATUS, PRAYERS } from '../types';
+import { Student } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { useClasses } from '../contexts/ClassesContext';
 
@@ -162,8 +162,7 @@ export default function MarkAttendance() {
               <tr style={{ background: '#f9fafb' }}>
                 <th style={{ padding: '16px', textAlign: 'left', fontWeight: '600', color: '#374151', borderBottom: '2px solid #e5e7eb' }}>Student</th>
                 <th style={{ padding: '16px', textAlign: 'left', fontWeight: '600', color: '#374151', borderBottom: '2px solid #e5e7eb' }}>Roll Number</th>
-                <th style={{ padding: '16px', textAlign: 'left', fontWeight: '600', color: '#374151', borderBottom: '2px solid #e5e7eb' }}>Status</th>
-                <th style={{ padding: '16px', textAlign: 'left', fontWeight: '600', color: '#374151', borderBottom: '2px solid #e5e7eb' }}>Prayer</th>
+                <th style={{ padding: '16px', textAlign: 'left', fontWeight: '600', color: '#374151', borderBottom: '2px solid #e5e7eb' }}>Namaz</th>
               </tr>
             </thead>
             <tbody>
@@ -186,31 +185,8 @@ export default function MarkAttendance() {
                         outline: 'none'
                       }}
                     >
-                      {ATTENDANCE_STATUS.map(status => (
-                        <option key={status} value={status}>{status}</option>
-                      ))}
-                    </select>
-                  </td>
-                  <td style={{ padding: '16px' }}>
-                    <select
-                      value={attendance[student.id]?.prayer || ''}
-                      onChange={(e) => {
-                        updateAttendance(student.id, 'prayer', e.target.value);
-                        setTimeout(() => saveAttendance(student.id), 100);
-                      }}
-                      style={{
-                        padding: '8px 12px',
-                        border: '2px solid #e5e7eb',
-                        borderRadius: '6px',
-                        fontSize: '14px',
-                        outline: 'none',
-                        minWidth: '120px'
-                      }}
-                    >
-                      <option value="">Select Prayer</option>
-                      {PRAYERS.map(prayer => (
-                        <option key={prayer} value={prayer}>{prayer}</option>
-                      ))}
+                      <option value="Present">Present</option>
+                      <option value="Absent">Absent</option>
                     </select>
                   </td>
                 </tr>

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { db } from "../db";
-import { morningBliss, stars } from "../../shared/schema";
+import { morningBliss, stars, students } from "../../shared/schema";
 import { eq, and, sql, gte, lte, desc, SQL } from "drizzle-orm";
 import { requireAuth } from "../middleware/auth";
 
@@ -19,10 +19,43 @@ router.get("/", async (req, res) => {
     if (start_date) conditions.push(gte(morningBliss.date, start_date as string));
     if (end_date) conditions.push(lte(morningBliss.date, end_date as string));
 
-    const result = await db.select().from(morningBliss)
+    const result = await db.select({
+      id: morningBliss.id,
+      studentId: morningBliss.studentId,
+      class: morningBliss.class,
+      topic: morningBliss.topic,
+      score: morningBliss.score,
+      evaluatedBy: morningBliss.evaluatedBy,
+      evaluatorId: morningBliss.evaluatorId,
+      photoUrls: morningBliss.photoUrls,
+      date: morningBliss.date,
+      isDailyWinner: morningBliss.isDailyWinner,
+      isTopper: morningBliss.isTopper,
+      createdAt: morningBliss.createdAt,
+      studentName: students.name,
+    })
+      .from(morningBliss)
+      .leftJoin(students, eq(morningBliss.studentId, students.id))
       .where(conditions.length > 0 ? and(...conditions) : undefined)
       .orderBy(desc(morningBliss.date));
-    res.json(result);
+    
+    const transformedResult = result.map(r => ({
+      id: r.id,
+      student_id: r.studentId,
+      class: r.class,
+      topic: r.topic,
+      score: r.score,
+      evaluated_by: r.evaluatedBy,
+      evaluator_id: r.evaluatorId,
+      photo_urls: r.photoUrls,
+      date: r.date,
+      is_daily_winner: r.isDailyWinner,
+      is_topper: r.isTopper,
+      created_at: r.createdAt,
+      students: { name: r.studentName }
+    }));
+    
+    res.json(transformedResult);
   } catch (error) {
     console.error("Error fetching morning bliss:", error);
     res.status(500).json({ error: "Failed to fetch morning bliss records" });
@@ -64,21 +97,30 @@ router.post("/", async (req, res) => {
     }).returning();
 
     if (numericScore >= 9) {
-      const starCount = numericScore >= 9.5 ? 2 : 1;
+      let starCount = 0;
+      if (numericScore === 10) {
+        starCount = 3;
+      } else if (numericScore >= 9.5) {
+        starCount = 2;
+      } else if (numericScore >= 9) {
+        starCount = 1;
+      }
       
-      const existingStar = await db.select().from(stars).where(eq(stars.studentId, student_id));
-      
-      if (existingStar.length > 0) {
-        await db.update(stars)
-          .set({ count: sql`${stars.count} + ${starCount}` })
-          .where(eq(stars.studentId, student_id));
-      } else {
-        await db.insert(stars).values({
-          studentId: student_id,
-          count: starCount,
-          source: 'morning_bliss',
-          addedBy: req.session.mentorId,
-        });
+      if (starCount > 0) {
+        const existingStar = await db.select().from(stars).where(eq(stars.studentId, student_id));
+        
+        if (existingStar.length > 0) {
+          await db.update(stars)
+            .set({ count: sql`${stars.count} + ${starCount}` })
+            .where(eq(stars.studentId, student_id));
+        } else {
+          await db.insert(stars).values({
+            studentId: student_id,
+            count: starCount,
+            source: 'morning_bliss',
+            addedBy: req.session.mentorId,
+          });
+        }
       }
     }
 

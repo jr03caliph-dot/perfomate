@@ -60,7 +60,7 @@ export default function MorningBlissReports() {
   async function fetchCustomRangeScores() {
     setLoading(true);
     try {
-      const params: any = { from_date: fromDate, to_date: toDate };
+      const params: any = { start_date: fromDate, end_date: toDate };
       if (selectedClass !== 'ALL') {
         params.class = selectedClass;
       }
@@ -86,42 +86,63 @@ export default function MorningBlissReports() {
     }
   }
 
+  function formatDateForTitle(dateStr: string): string {
+    const date = new Date(dateStr);
+    const day = String(date.getDate()).padStart(2, '0');
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const year = String(date.getFullYear()).slice(-2);
+    return `${day}/${month}/${year}`;
+  }
+
   function generatePDF() {
     const doc = new jsPDF();
     const scores = viewMode === 'daily' ? dailyScores : customRangeScores;
     
-    doc.setFontSize(18);
-    doc.text('Morning Bliss Report', 14, 22);
+    const dateTitle = viewMode === 'daily' 
+      ? formatDateForTitle(selectedDate)
+      : `${formatDateForTitle(fromDate)} - ${formatDateForTitle(toDate)}`;
     
-    doc.setFontSize(12);
-    if (viewMode === 'daily') {
-      doc.text(`Date: ${selectedDate}`, 14, 32);
-    } else {
-      doc.text(`Date Range: ${fromDate} to ${toDate}`, 14, 32);
-    }
-    if (selectedClass !== 'ALL') {
-      doc.text(`Class: ${selectedClass}`, 14, 40);
-    }
+    doc.setFontSize(18);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(0, 51, 102);
+    doc.text(`MORNING BLISS - ${dateTitle}`, doc.internal.pageSize.getWidth() / 2, 22, { align: 'center' });
 
-    const tableData = scores.map((score, index) => [
-      index + 1,
-      (score as any).students?.name || 'N/A',
+    const tableData = scores.map((score) => [
       score.class,
+      (score as any).students?.name || 'N/A',
       score.topic,
       score.score,
-      score.stars_awarded || 0,
-      score.is_daily_winner ? 'Yes' : 'No'
+      score.evaluated_by || (score as any).evaluatedBy || 'N/A'
     ]);
 
     autoTable(doc, {
-      head: [['#', 'Student', 'Class', 'Topic', 'Score', 'Stars', 'Winner']],
+      head: [['Class', 'Name of Students', 'Topic', 'Score (10)', 'Evaluated by']],
       body: tableData,
-      startY: selectedClass !== 'ALL' ? 48 : 40,
-      styles: { fontSize: 10 },
-      headStyles: { fillColor: [22, 163, 74] }
+      startY: 32,
+      styles: { 
+        fontSize: 10,
+        cellPadding: 6,
+        lineColor: [200, 200, 200],
+        lineWidth: 0.5
+      },
+      headStyles: { 
+        fillColor: [70, 130, 180],
+        textColor: [255, 255, 255],
+        fontStyle: 'bold',
+        halign: 'center'
+      },
+      alternateRowStyles: {
+        fillColor: [220, 235, 250]
+      },
+      columnStyles: {
+        0: { halign: 'center', cellWidth: 20 },
+        1: { fontStyle: 'bold' },
+        3: { halign: 'center', cellWidth: 25 },
+        4: { halign: 'center', fontStyle: 'bold', cellWidth: 30 }
+      }
     });
 
-    doc.save(`morning-bliss-report-${viewMode === 'daily' ? selectedDate : `${fromDate}-to-${toDate}`}.pdf`);
+    doc.save(`morning-bliss-${viewMode === 'daily' ? selectedDate : `${fromDate}-to-${toDate}`}.pdf`);
   }
 
   const scores = viewMode === 'daily' ? dailyScores : customRangeScores;
@@ -281,13 +302,12 @@ export default function MorningBlissReports() {
         }}>
           <table style={{ width: '100%', borderCollapse: 'collapse' }}>
             <thead>
-              <tr style={{ background: '#16a34a', color: '#ffffff' }}>
-                <th style={{ padding: '12px', textAlign: 'left' }}>#</th>
-                <th style={{ padding: '12px', textAlign: 'left' }}>Student</th>
-                <th style={{ padding: '12px', textAlign: 'left' }}>Class</th>
+              <tr style={{ background: '#4682B4', color: '#ffffff' }}>
+                <th style={{ padding: '12px', textAlign: 'center' }}>Class</th>
+                <th style={{ padding: '12px', textAlign: 'left' }}>Name of Students</th>
                 <th style={{ padding: '12px', textAlign: 'left' }}>Topic</th>
-                <th style={{ padding: '12px', textAlign: 'center' }}>Score</th>
-                <th style={{ padding: '12px', textAlign: 'center' }}>Stars</th>
+                <th style={{ padding: '12px', textAlign: 'center' }}>Score (10)</th>
+                <th style={{ padding: '12px', textAlign: 'center' }}>Evaluated by</th>
                 <th style={{ padding: '12px', textAlign: 'center' }}>Winner</th>
               </tr>
             </thead>
@@ -297,20 +317,19 @@ export default function MorningBlissReports() {
                   key={score.id || index}
                   style={{
                     borderBottom: '1px solid #e5e7eb',
-                    background: score.is_daily_winner ? '#fef3c7' : index % 2 === 0 ? '#ffffff' : '#f9fafb'
+                    background: score.is_daily_winner ? '#fef3c7' : index % 2 === 0 ? '#ffffff' : '#dceafa'
                   }}
                 >
-                  <td style={{ padding: '12px' }}>{index + 1}</td>
-                  <td style={{ padding: '12px', fontWeight: '500' }}>
+                  <td style={{ padding: '12px', textAlign: 'center' }}>{score.class}</td>
+                  <td style={{ padding: '12px', fontWeight: '600' }}>
                     {(score as any).students?.name || 'N/A'}
                   </td>
-                  <td style={{ padding: '12px' }}>{score.class}</td>
                   <td style={{ padding: '12px' }}>{score.topic}</td>
                   <td style={{ padding: '12px', textAlign: 'center', fontWeight: 'bold' }}>
                     {score.score}
                   </td>
-                  <td style={{ padding: '12px', textAlign: 'center' }}>
-                    {score.stars_awarded > 0 ? '⭐'.repeat(score.stars_awarded) : '-'}
+                  <td style={{ padding: '12px', textAlign: 'center', fontWeight: 'bold' }}>
+                    {score.evaluated_by || (score as any).evaluatedBy || 'N/A'}
                   </td>
                   <td style={{ padding: '12px', textAlign: 'center' }}>
                     <button

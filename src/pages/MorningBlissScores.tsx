@@ -396,6 +396,9 @@ export default function MorningBlissScores() {
                       <div>
                         <p style={{ fontWeight: '600' }}>{studentName}</p>
                         <p style={{ fontSize: '12px', color: '#6b7280' }}>{scoreItem.topic}</p>
+                        <p style={{ fontSize: '11px', color: '#9ca3af', marginTop: '2px' }}>
+                          Evaluated by: {scoreItem.evaluated_by || (scoreItem as any).evaluatedBy || 'N/A'}
+                        </p>
                       </div>
                       <div style={{ textAlign: 'right' }}>
                         <p style={{ fontSize: '20px', fontWeight: 'bold', color: '#16a34a' }}>
